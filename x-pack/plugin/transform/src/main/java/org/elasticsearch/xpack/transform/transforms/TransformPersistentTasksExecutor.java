@@ -120,6 +120,7 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
         if (TransformMetadata.getTransformMetadata(clusterState).isResetMode()) {
             return new PersistentTasksCustomMetadata.Assignment(
                 null,
+                PersistentTasksCustomMetadata.Explanation.FEATURE_RESET_IN_PROGRESS,
                 "Transform task will not be assigned as a feature reset is in progress."
             );
         }
@@ -132,7 +133,11 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
                 + String.join(",", unavailableIndices)
                 + "]";
             logger.debug(reason);
-            return new PersistentTasksCustomMetadata.Assignment(null, reason);
+            return new PersistentTasksCustomMetadata.Assignment(
+                null,
+                PersistentTasksCustomMetadata.Explanation.PRIMARY_SHARDS_NOT_ACTIVE,
+                reason
+            );
         }
         DiscoveryNode discoveryNode = selectLeastLoadedNode(
             clusterState,
@@ -141,21 +146,31 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
         );
 
         if (discoveryNode == null) {
-            Map<String, String> explainWhyAssignmentFailed = new TreeMap<>();
+            Map<String, TransformNodes.ExplanationAndDescription> explainWhyAssignmentFailed = new TreeMap<>();
             for (DiscoveryNode node : clusterState.getNodes()) {
                 nodeCanRunThisTransform(node, params.getVersion(), params.requiresRemote(), explainWhyAssignmentFailed);
             }
             String reason = "Not starting transform ["
                 + params.getId()
                 + "], reasons ["
-                + explainWhyAssignmentFailed.entrySet().stream().map(e -> e.getKey() + ":" + e.getValue()).collect(Collectors.joining("|"))
+                + explainWhyAssignmentFailed.entrySet()
+                    .stream()
+                    .map(e -> e.getKey() + ":" + e.getValue().explanation() + " - " + e.getValue().description())
+                    .collect(Collectors.joining("|"))
                 + "]";
 
             logger.debug(reason);
-            return new PersistentTasksCustomMetadata.Assignment(null, reason);
+            return new PersistentTasksCustomMetadata.Assignment(
+                null,
+                explainWhyAssignmentFailed.values().stream().map(TransformNodes.ExplanationAndDescription::explanation).toList(),
+                reason
+            );
         }
 
-        return new PersistentTasksCustomMetadata.Assignment(discoveryNode.getId(), "");
+        return new PersistentTasksCustomMetadata.Assignment(
+            discoveryNode.getId(),
+            PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL
+        );
     }
 
     static List<String> verifyIndicesPrimaryShardsAreActive(ClusterState clusterState, IndexNameExpressionResolver resolver) {

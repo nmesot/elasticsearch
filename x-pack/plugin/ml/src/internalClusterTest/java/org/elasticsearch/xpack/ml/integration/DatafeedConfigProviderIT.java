@@ -396,7 +396,11 @@ public class DatafeedConfigProviderIT extends MlSingleNodeTestCase {
             MlTasks.datafeedTaskId("foo-1"),
             MlTasks.DATAFEED_TASK_NAME,
             new StartDatafeedAction.DatafeedParams("foo-1", 0L),
-            new PersistentTasksCustomMetadata.Assignment("node-1", "test assignment")
+            new PersistentTasksCustomMetadata.Assignment(
+                "node-1",
+                PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
+                "test assignment"
+            )
         );
 
         PersistentTasksCustomMetadata tasks = tasksBuilder.build();

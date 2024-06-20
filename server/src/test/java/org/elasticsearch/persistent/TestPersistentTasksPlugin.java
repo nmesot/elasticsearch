@@ -309,7 +309,11 @@ public class TestPersistentTasksPlugin extends Plugin implements ActionPlugin, P
         @Override
         public Assignment getAssignment(TestParams params, Collection<DiscoveryNode> candidateNodes, ClusterState clusterState) {
             if (nonClusterStateCondition == false) {
-                return new Assignment(null, "non cluster state condition prevents assignment");
+                return new Assignment(
+                    null,
+                    PersistentTasksCustomMetadata.Explanation.GENERIC_REASON,
+                    "non cluster state condition prevents assignment"
+                );
             }
             if (params == null || params.getExecutorNodeAttr() == null) {
                 return super.getAssignment(params, candidateNodes, clusterState);
@@ -320,7 +324,11 @@ public class TestPersistentTasksPlugin extends Plugin implements ActionPlugin, P
                     discoveryNode -> params.getExecutorNodeAttr().equals(discoveryNode.getAttributes().get("test_attr"))
                 );
                 if (executorNode != null) {
-                    return new Assignment(executorNode.getId(), "test assignment");
+                    return new Assignment(
+                        executorNode.getId(),
+                        PersistentTasksCustomMetadata.Explanation.GENERIC_REASON,
+                        "test assignment"
+                    );
                 } else {
                     return NO_NODE_FOUND;
                 }

@@ -139,7 +139,11 @@ public class DownsampleShardPersistentTaskExecutor extends PersistentTasksExecut
         var indexShardRouting = findShardRoutingTable(shardId, clusterState);
         if (indexShardRouting == null) {
             var node = selectLeastLoadedNode(clusterState, candidateNodes, DiscoveryNode::canContainData);
-            return new PersistentTasksCustomMetadata.Assignment(node.getId(), "a node to fail and stop this persistent task");
+            return new PersistentTasksCustomMetadata.Assignment(
+                node.getId(),
+                PersistentTasksCustomMetadata.Explanation.SOURCE_INDEX_REMOVED,
+                "a node to fail and stop this persistent task"
+            );
         }
 
         final ShardRouting shardRouting = indexShardRouting.primaryShard();
@@ -153,6 +157,7 @@ public class DownsampleShardPersistentTaskExecutor extends PersistentTasksExecut
             .map(
                 node -> new PersistentTasksCustomMetadata.Assignment(
                     node.getId(),
+                    PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
                     "downsampling using node holding shard [" + shardId + "]"
                 )
             )

@@ -23,6 +23,7 @@ import org.elasticsearch.common.io.stream.VersionedNamedWriteable;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.xcontent.ChunkedToXContentHelper;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.core.RestApiVersion;
 import org.elasticsearch.xcontent.ConstructingObjectParser;
 import org.elasticsearch.xcontent.ObjectParser;
 import org.elasticsearch.xcontent.ObjectParser.NamedObjectParser;
@@ -33,6 +34,8 @@ import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentParser;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -56,7 +59,11 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
 
     public static final String TYPE = "persistent_tasks";
     private static final String API_CONTEXT = Metadata.XContentContext.API.toString();
-    static final Assignment LOST_NODE_ASSIGNMENT = new Assignment(null, "awaiting reassignment after node loss");
+    static final Assignment LOST_NODE_ASSIGNMENT = new Assignment(
+        null,
+        Explanation.AWAITING_REASSIGNMENT,
+        "awaiting reassignment after node loss"
+    );
 
     // TODO: Implement custom Diff for tasks
     private final Map<String, PersistentTask<?>> tasks;
@@ -74,9 +81,11 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
         TaskBuilder::new
     );
 
+    @SuppressWarnings("unchecked")
     public static final ConstructingObjectParser<Assignment, Void> ASSIGNMENT_PARSER = new ConstructingObjectParser<>(
         "assignment",
-        objects -> new Assignment((String) objects[0], (String) objects[1])
+        true,
+        a -> new Assignment((String) a[0], ((List<String>) a[1]).toArray(String[]::new), (String) a[2])
     );
 
     private static final NamedObjectParser<TaskDescriptionBuilder<PersistentTaskParams>, Void> TASK_DESCRIPTION_PARSER;
@@ -102,6 +111,7 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
 
         // Assignment parser
         ASSIGNMENT_PARSER.declareStringOrNull(constructorArg(), new ParseField("executor_node"));
+        ASSIGNMENT_PARSER.declareStringArray(constructorArg(), new ParseField("explanation_codes"));
         ASSIGNMENT_PARSER.declareStringOrNull(constructorArg(), new ParseField("explanation"));
 
         // Task parser initialization
@@ -131,6 +141,151 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
 
     public static PersistentTasksCustomMetadata getPersistentTasksCustomMetadata(ClusterState clusterState) {
         return clusterState.getMetadata().custom(PersistentTasksCustomMetadata.TYPE);
+    }
+
+    /**
+     * Explanation why the persistent task has the current assignment.
+     * <p>
+     * More details can be found in the {@code Assignment.explanationDetails}.
+     * Callers might need to interpret an assignment failure to e.g. return a HTTP status code.
+     * A string is hard to interpret and therefore this an {@code Explanation} enum is provided.
+     */
+    public enum Explanation {
+        /**
+         * Persistent task assignment to this node was successful.
+         */
+        ASSIGNMENT_SUCCESSFUL,
+
+        /**
+         * Persistent task is waiting for initial assignment. This is the default when creating a new task.
+         */
+        WAITING_FOR_INITIAL_ASSIGNMENT,
+
+        /**
+         * Persistent task is awaiting reassignment after node loss.
+         */
+        AWAITING_REASSIGNMENT,
+
+        /**
+         * Persistent task assignments are not allowed due to cluster settings.
+         */
+        ASSIGNMENTS_NOT_ALLOWED,
+
+        /**
+         * Persistent task could not find appropriate nodes.
+         */
+        NO_NODES_FOUND,
+
+        /**
+         * Persistent task assignment successful but source index was removed. Task will fail during node operation.
+         */
+        SOURCE_INDEX_REMOVED,
+
+        /**
+         * Persistent task cannot be assigned during an upgrade.
+         */
+        AWAITING_UPGRADE,
+
+        /**
+         * Persistent task cannot be assigned during a feature reset.
+         */
+        FEATURE_RESET_IN_PROGRESS,
+
+        /**
+         * Persistent task was aborted locally.
+         */
+        ABORTED_LOCALLY,
+
+        /**
+         * Persistent datafeed job task state is not OPENING or OPENED.
+         */
+        DATAFEED_JOB_STATE_NOT_OPEN,
+
+        /**
+         * Persistent datafeed job task is stale.
+         */
+        DATAFEED_JOB_STALE,
+
+        /**
+         * Persistent datafeed job task index not found.
+         */
+        DATAFEED_INDEX_NOT_FOUND,
+
+        /**
+         * Persistent datafeed job task cannot start because resolving the index threw an exception.
+         */
+        DATAFEED_RESOLVING_INDEX_THREW_EXCEPTION,
+
+        /**
+         * Persistent task cannot start because indices do not have all primary shards active yet.
+         */
+        PRIMARY_SHARDS_NOT_ACTIVE,
+
+        /**
+         * Persistent task is awaiting lazy node assignment.
+         */
+        AWAITING_LAZY_ASSIGNMENT,
+
+        /**
+         * Persistent task cannot be started because job memory requirements are stale.
+         */
+        MEMORY_REQUIREMENTS_STALE,
+
+        /**
+         * Persistent task requires a node with a higher config version.
+         */
+        CONFIG_VERSION_TOO_LOW,
+
+        /**
+         * Persistent task cannot be started on a node which is not compatible with jobs of this type.
+         */
+        NODE_NOT_COMPATIBLE,
+
+        /**
+         * Persistent task cannot be started because an error occurred while detecting the load for this node.
+         */
+        ERROR_DETECTING_LOAD,
+
+        /**
+         * Persistent task cannot be started on a node that exceeds the maximum number of jobs allowed in opening state.
+         */
+        MAX_CONCURRENT_EXECUTIONS_EXCEEDED,
+
+        /**
+         * Persistent task cannot be started on a node that is full.
+         */
+        NODE_FULL,
+
+        /**
+         * Persistent task cannot be started on a node that is not providing accurate information to determine its load by memory.
+         */
+        NODE_MEMORY_LOAD_UNKNOWN,
+
+        /**
+         * Persistent task cannot be started ona node that is indicating that it has no native memory for machine learning.
+         */
+        NO_NATIVE_MEMORY_FOR_ML,
+
+        /**
+         * Persistent task cannot be started on a node that has insufficient available memory.
+         */
+        INSUFFICIENT_MEMORY,
+
+        /**
+         * Persistent task is not waiting for node assignment as estimated job size is greater than the largest possible job size.
+         */
+        LARGEST_POSSIBLE_JOB_SIZE_EXCEEDED,
+
+        /**
+         * Persistent task requires a remote connection but the node does not have the remote_cluster_client role.
+         */
+        REMOTE_NOT_ENABLED,
+
+        /**
+         * Persistent task cannot not be assigned because of a generic reason.
+         * This is mostly used in testing and for backwards compatibility.
+         */
+        GENERIC_REASON,
     }
 
     /**
@@ -257,17 +412,54 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
     public static class Assignment {
         @Nullable
         private final String executorNode;
+        private List<PersistentTasksCustomMetadata.Explanation> explanationCodes = new ArrayList<>();
+        @Nullable
         private final String explanation;
 
         public Assignment(String executorNode, String explanation) {
             this.executorNode = executorNode;
-            assert explanation != null;
+            this.explanationCodes.add(PersistentTasksCustomMetadata.Explanation.GENERIC_REASON);
+            this.explanation = explanation;
+        }
+
+        public Assignment(String executorNode, PersistentTasksCustomMetadata.Explanation explanationCode) {
+            this(executorNode, explanationCode, null);
+        }
+
+        public Assignment(String executorNode, PersistentTasksCustomMetadata.Explanation explanationCode, String explanation) {
+            this.executorNode = executorNode;
+            assert explanationCode != null;
+            this.explanationCodes.add(explanationCode);
+            this.explanation = explanation;
+        }
+
+        public Assignment(String executorNode, List<PersistentTasksCustomMetadata.Explanation> explanationCodes, String explanation) {
+            this.executorNode = executorNode;
+            assert explanationCodes != null;
+            assert explanationCodes.isEmpty() == false;
+            this.explanationCodes.addAll(explanationCodes);
+            this.explanation = explanation;
+        }
+
+        private Assignment(String executorNode, String[] explanationCodes, String explanation) {
+            this.executorNode = executorNode;
+            assert explanationCodes != null;
+            assert explanationCodes.length > 0;
+            this.explanationCodes.addAll(new ArrayList<>(Arrays.asList(explanationCodes)).stream().map(Explanation::valueOf).toList());
             this.explanation = explanation;
         }
 
         @Nullable
         public String getExecutorNode() {
             return executorNode;
+        }
+
+        public List<PersistentTasksCustomMetadata.Explanation> getExplanationCodes() {
+            return explanationCodes;
+        }
+
+        public String getExplanationCodesAndExplanation() {
+            return String.join("|", explanationCodes.stream().map(Enum::name).toList()) + ", details: " + explanation;
         }
 
         public String getExplanation() {
@@ -279,12 +471,12 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Assignment that = (Assignment) o;
-            return Objects.equals(executorNode, that.executorNode) && Objects.equals(explanation, that.explanation);
+            return Objects.equals(executorNode, that.executorNode) && Objects.equals(explanationCodes, that.explanationCodes);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(executorNode, explanation);
+            return Objects.hash(executorNode, explanationCodes);
         }
 
         public boolean isAssigned() {
@@ -293,11 +485,22 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
 
         @Override
         public String toString() {
-            return "node: [" + executorNode + "], explanation: [" + explanation + "]";
+            return "node: ["
+                + executorNode
+                + "], explanationCodes: ["
+                + String.join("|", explanationCodes.stream().map(Enum::name).toList())
+                + "], explanation: ["
+                + explanation
+                + "]";
         }
+
     }
 
-    public static final Assignment INITIAL_ASSIGNMENT = new Assignment(null, "waiting for initial assignment");
+    public static final Assignment INITIAL_ASSIGNMENT = new Assignment(
+        null,
+        Explanation.WAITING_FOR_INITIAL_ASSIGNMENT,
+        "waiting for initial assignment"
+    );
 
     /**
      * A record that represents a single running persistent task
@@ -363,7 +566,15 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
             taskName = in.readString();
             params = (P) in.readNamedWriteable(PersistentTaskParams.class);
             state = in.readOptionalNamedWriteable(PersistentTaskState.class);
-            assignment = new Assignment(in.readOptionalString(), in.readString());
+            if (in.getTransportVersion().before(TransportVersions.PERSISTENT_TASK_CUSTOM_METADATA_ASSIGNMENT_REASON_ENUM)) {
+                assignment = new Assignment(in.readOptionalString(), Explanation.GENERIC_REASON);
+            } else {
+                assignment = new Assignment(
+                    in.readOptionalString(),
+                    in.readCollectionAsList(nested_in -> nested_in.readEnum(Explanation.class)),
+                    in.readOptionalString()
+                );
+            }
             allocationIdOnLastStatusUpdate = in.readOptionalLong();
         }
 
@@ -375,7 +586,12 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
             out.writeNamedWriteable(params);
             out.writeOptionalNamedWriteable(state);
             out.writeOptionalString(assignment.executorNode);
-            out.writeString(assignment.explanation);
+            if (out.getTransportVersion().before(TransportVersions.PERSISTENT_TASK_CUSTOM_METADATA_ASSIGNMENT_REASON_ENUM)) {
+                out.writeOptionalString(assignment.explanation == null ? "" : assignment.explanation);
+            } else {
+                out.writeCollection(assignment.explanationCodes, StreamOutput::writeEnum);
+                out.writeOptionalString(assignment.explanation);
+            }
             out.writeOptionalLong(allocationIdOnLastStatusUpdate);
         }
 
@@ -464,7 +680,12 @@ public final class PersistentTasksCustomMetadata extends AbstractNamedDiffable<M
                     builder.startObject("assignment");
                     {
                         builder.field("executor_node", assignment.executorNode);
-                        builder.field("explanation", assignment.explanation);
+                        if (builder.getRestApiVersion() == RestApiVersion.V_7) {
+                            builder.field("explanation", assignment.explanation);
+                        } else {
+                            builder.stringListField("explanation_codes", assignment.explanationCodes.stream().map(Enum::name).toList());
+                            builder.field("explanation", assignment.explanation == null ? "" : assignment.explanation);
+                        }
                     }
                     builder.endObject();
                     if (allocationIdOnLastStatusUpdate != null) {

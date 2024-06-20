@@ -313,7 +313,11 @@ public class PersistentTasksCustomMetadataTests extends ChunkedToXContentDiffabl
                 "task-id",
                 taskName,
                 emptyTaskParams(taskName),
-                new PersistentTasksCustomMetadata.Assignment("node1", "test assignment")
+                new PersistentTasksCustomMetadata.Assignment(
+                    "node1",
+                    PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
+                    "test assignment"
+                )
             );
 
         ClusterState originalState = ClusterState.builder(new ClusterName("persistent-tasks-tests"))
@@ -341,13 +345,21 @@ public class PersistentTasksCustomMetadataTests extends ChunkedToXContentDiffabl
                 "assigned-task",
                 taskName,
                 emptyTaskParams(taskName),
-                new PersistentTasksCustomMetadata.Assignment("node1", "test assignment")
+                new PersistentTasksCustomMetadata.Assignment(
+                    "node1",
+                    PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
+                    "test assignment"
+                )
             )
             .addTask(
                 "task-on-deceased-node",
                 taskName,
                 emptyTaskParams(taskName),
-                new PersistentTasksCustomMetadata.Assignment("left-the-cluster", "test assignment")
+                new PersistentTasksCustomMetadata.Assignment(
+                    "left-the-cluster",
+                    PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
+                    "test assignment"
+                )
             );
 
         ClusterState originalState = ClusterState.builder(new ClusterName("persistent-tasks-tests"))
@@ -396,9 +408,13 @@ public class PersistentTasksCustomMetadataTests extends ChunkedToXContentDiffabl
             if (randomBoolean()) {
                 return NO_NODE_FOUND;
             } else {
-                return new Assignment(null, randomAlphaOfLength(10));
+                return new Assignment(null, PersistentTasksCustomMetadata.Explanation.GENERIC_REASON, randomAlphaOfLength(10));
             }
         }
-        return new Assignment(randomAlphaOfLength(10), randomAlphaOfLength(10));
+        return new Assignment(
+            randomAlphaOfLength(10),
+            PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
+            randomAlphaOfLength(10)
+        );
     }
 }
